@@ -1,17 +1,45 @@
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Cmd where
 
 import Data.Char
+import Data.List
 
-data Event = Shrunk String | Grew String
+data Sized = Sized String
   deriving (Show)
 
-data Sized = Shrink String | Grow String
-  deriving (Show)
+class Aggregate s where
+  data Error s :: *
+  data Command s :: *
+  data Event s :: *
 
-class Cmd cmd where
-  perform :: cmd -> (cmd, b)
+  execute :: s -> Command s -> Either (Error s) (Event s)
+  apply :: s -> Event s -> s
+  seed :: s
 
-instance Cmd (Sized, Event) where
-  perform (Shrink a) = (Shrink a, Shrunk (toLower <$> a))
-  perform (Grow s) = (Grow s, Grew (toUpper <$> s))
+instance Aggregate Sized where
+  data Error Sized = Empty | AlreadyUp | AlreadyDown
+    deriving (Show)
+  data Command Sized = Grow | Shrink
+    deriving (Show)
+  data Event Sized = Grew String | Shrunk String
+    deriving (Show)
 
+  execute (Sized s) Grow =
+    Grew
+    <$> validate ((>0) . length) Empty s
+    <* validate (not . all isUpper) AlreadyUp s
+  execute (Sized s) Shrink =
+    Shrunk
+    <$> validate ((>0) . length) Empty s
+    <* validate (not . all isLower) AlreadyDown s
+
+  apply _s (Grew s) = Sized $ toUpper <$> s
+  apply _s (Shrunk s) = Sized $ toLower <$> s
+  seed = Sized ""
+
+validate :: (a -> Bool) -> e -> a -> Either e a
+validate pred e a
+  | pred a = Right a
+  | otherwise = Left e
